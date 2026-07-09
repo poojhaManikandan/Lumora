@@ -7,6 +7,7 @@ import utils
 import quiz
 import feedback
 import os
+import time
 
 # Set page configuration
 st.set_page_config(
@@ -90,6 +91,8 @@ if "quiz_history" not in st.session_state:
     st.session_state.quiz_history = []
 if "custom_api_key" not in st.session_state:
     st.session_state.custom_api_key = ""
+if "last_request_time" not in st.session_state:
+    st.session_state.last_request_time = 0  # Unix timestamp of last API call
 
 # Sidebar Layout
 st.sidebar.markdown("# ✨ Lumora")
@@ -233,6 +236,9 @@ with st.container(border=True):
 # Resolve API Key
 active_key = utils.get_api_key(st.session_state.custom_api_key)
 
+# Cooldown config: free tier = 15 req/min → enforce 5s gap between calls
+COOLDOWN_SECONDS = 5
+
 # Trigger Action on Start Button
 if start_btn:
     # Validation 1: Check empty topic
@@ -242,11 +248,12 @@ if start_btn:
     elif not active_key or active_key == "your_gemini_api_key_here":
         st.error("⚠️ Gemini API key is missing. Please enter it in the sidebar.")
     else:
-        # Check if topic or difficulty changed, reset cached session results if so
-        if (st.session_state.current_topic != st.session_state.topic_input.strip() or
-            st.session_state.current_difficulty != difficulty):
-            
-            st.session_state.current_topic = st.session_state.topic_input.strip()
+        topic_clean = st.session_state.topic_input.strip()
+
+        # Check if topic or difficulty changed — reset cached results
+        if (st.session_state.current_topic != topic_clean or
+                st.session_state.current_difficulty != difficulty):
+            st.session_state.current_topic = topic_clean
             st.session_state.current_difficulty = difficulty
             st.session_state.explanation_content = None
             st.session_state.example_content = None
@@ -254,42 +261,52 @@ if start_btn:
             st.session_state.quiz_questions = None
             quiz.reset_quiz_state()
 
-        # Run selected activity
-        try:
-            if activity == "Explain Concept":
-                with st.spinner(f"Generating explanation for '{st.session_state.current_topic}'..."):
-                    st.session_state.explanation_content = utils.get_explanation(
-                        st.session_state.current_topic,
-                        st.session_state.current_difficulty,
-                        active_key
-                    )
-            elif activity == "Real-Life Example":
-                with st.spinner("Creating a practical real-world analogy..."):
-                    st.session_state.example_content = utils.get_example(
-                        st.session_state.current_topic,
-                        st.session_state.current_difficulty,
-                        active_key
-                    )
-            elif activity == "Generate Quiz":
-                with st.spinner("Assembling custom quiz questions..."):
-                    questions = utils.get_quiz(
-                        st.session_state.current_topic,
-                        st.session_state.current_difficulty,
-                        active_key
-                    )
-                    quiz.init_quiz_state(questions)
-            elif activity == "Tutoring Summary":
-                # Ensure they have completed quiz or explanation
-                score_to_pass = st.session_state.get("quiz_score", 0) if st.session_state.get("quiz_completed", False) else 0
-                with st.spinner("Reviewing your study session data..."):
-                    st.session_state.summary_content = utils.get_session_summary(
-                        st.session_state.current_topic,
-                        st.session_state.current_difficulty,
-                        score_to_pass,
-                        active_key
-                    )
-        except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
+        # ── Cache check: skip API call if result already exists ──────────────
+        already_cached = (
+            (activity == "Explain Concept"    and st.session_state.explanation_content) or
+            (activity == "Real-Life Example"  and st.session_state.example_content)     or
+            (activity == "Generate Quiz"      and st.session_state.quiz_questions)      or
+            (activity == "Tutoring Summary"   and st.session_state.summary_content)
+        )
+
+        if already_cached:
+            st.toast("✅ Showing cached result — no API call needed!", icon="⚡")
+        else:
+            # ── Cooldown check: respect free-tier rate limit ─────────────────
+            elapsed = time.time() - st.session_state.last_request_time
+            if elapsed < COOLDOWN_SECONDS:
+                wait = int(COOLDOWN_SECONDS - elapsed) + 1
+                st.warning(f"⏳ Please wait **{wait} second(s)** before making another request (free-tier rate limit).")
+            else:
+                # ── Make the API call ────────────────────────────────────────
+                try:
+                    st.session_state.last_request_time = time.time()
+
+                    if activity == "Explain Concept":
+                        with st.spinner(f"Generating explanation for '{topic_clean}'..."):
+                            st.session_state.explanation_content = utils.get_explanation(
+                                topic_clean, difficulty, active_key
+                            )
+                    elif activity == "Real-Life Example":
+                        with st.spinner("Creating a practical real-world analogy..."):
+                            st.session_state.example_content = utils.get_example(
+                                topic_clean, difficulty, active_key
+                            )
+                    elif activity == "Generate Quiz":
+                        with st.spinner("Assembling custom quiz questions..."):
+                            questions = utils.get_quiz(topic_clean, difficulty, active_key)
+                            quiz.init_quiz_state(questions)
+                    elif activity == "Tutoring Summary":
+                        score_to_pass = (
+                            st.session_state.get("quiz_score", 0)
+                            if st.session_state.get("quiz_completed", False) else 0
+                        )
+                        with st.spinner("Reviewing your study session data..."):
+                            st.session_state.summary_content = utils.get_session_summary(
+                                topic_clean, difficulty, score_to_pass, active_key
+                            )
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
 
 # Display Outputs based on Current Selections
 if st.session_state.current_topic:
