@@ -236,8 +236,8 @@ with st.container(border=True):
 # Resolve API Key
 active_key = utils.get_api_key(st.session_state.custom_api_key)
 
-# Cooldown config: free tier = 15 req/min → enforce 5s gap between calls
-COOLDOWN_SECONDS = 5
+# Cooldown config: free tier = 15 req/min → enforce 8s gap between calls
+COOLDOWN_SECONDS = 8
 
 # Trigger Action on Start Button
 if start_btn:

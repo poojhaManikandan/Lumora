@@ -162,7 +162,7 @@ def render_quiz(topic, difficulty, api_key=None):
                 return
 
             st.session_state.quiz_answers[current_index] = user_selection
-            
+
             # Grade Answer
             with st.spinner("AI Tutor is grading your answer..."):
                 if q["type"] == "Short Answer":
