@@ -1,6 +1,12 @@
 import utils
 
 
+def test_get_api_key_extracts_value_from_prefixed_input(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "GEMINI_API_KEY=literal-key")
+
+    assert utils.get_api_key() == "literal-key"
+
+
 def test_call_gemini_uses_current_genai_client(monkeypatch):
     calls = {}
 

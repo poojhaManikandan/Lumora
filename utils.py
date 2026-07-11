@@ -51,11 +51,22 @@ def get_api_key(custom_key=None):
     """
     Retrieve the Gemini API key.
     Priority: custom sidebar key > .env GEMINI_API_KEY
+    Accepts either a raw key or an env-style assignment such as GEMINI_API_KEY=... .
     """
-    key = custom_key.strip() if custom_key and custom_key.strip() else os.getenv("GEMINI_API_KEY")
-    if key:
-        key = key.strip("'\" \t\n\r")
-    return key
+    raw_key = custom_key.strip() if custom_key and custom_key.strip() else os.getenv("GEMINI_API_KEY")
+    if not raw_key:
+        return None
+
+    key = str(raw_key).strip()
+    if key.startswith(("'", '"')) and key.endswith(("'", '"')):
+        key = key[1:-1].strip()
+
+    for prefix in ("GEMINI_API_KEY=", "GOOGLE_API_KEY="):
+        if key.upper().startswith(prefix):
+            key = key[len(prefix):]
+            break
+
+    return key.strip("'\" \t\n\r")
 
 
 def call_gemini(prompt, api_key=None, is_json=False):
