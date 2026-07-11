@@ -6,10 +6,17 @@ NO blocking time.sleep() — Streamlit Cloud compatible.
 import os
 import json
 import logging
+from types import SimpleNamespace
 from dotenv import load_dotenv
-import google.generativeai as genai
-from google.generativeai.types import RequestOptions
 import prompts
+
+try:
+    from google import genai
+except ImportError as import_error:
+    genai = SimpleNamespace(Client=None)
+    GENAI_IMPORT_ERROR = import_error
+else:
+    GENAI_IMPORT_ERROR = None
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -17,6 +24,27 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv(override=True)
+
+
+def is_auth_error(message):
+    """Return True when Gemini rejected the supplied credential."""
+    return any(x in message for x in [
+        "401",
+        "API_KEY_INVALID",
+        "API key not valid",
+        "ACCESS_TOKEN_TYPE_UNSUPPORTED",
+        "UNAUTHENTICATED",
+    ])
+
+
+def invalid_api_key_error():
+    return Exception(
+        "Invalid API Key.\n\n"
+        "Your Gemini API key was rejected. Please:\n"
+        "1. Go to aistudio.google.com/apikey\n"
+        "2. Create a new API key\n"
+        "3. Paste only the key value in the sidebar field, not GEMINI_API_KEY=..."
+    )
 
 
 def get_api_key(custom_key=None):
@@ -41,44 +69,79 @@ def call_gemini(prompt, api_key=None, is_json=False):
             "API Key is missing. Please enter your Gemini API key in the sidebar."
         )
 
-    genai.configure(api_key=key)
+    if genai.Client is None:
+        raise RuntimeError(
+            "The Google GenAI SDK is not installed. Run: pip install google-genai"
+        ) from GENAI_IMPORT_ERROR
+
+    client = genai.Client(api_key=key)
 
     # Model fallback chain — newest to oldest
     model_chain = [
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-1.5-flash-latest",
-        "gemini-1.0-pro",
-        "gemini-pro",
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
     ]
 
     last_error = None
     for attempt_model in model_chain:
         try:
             generation_config = {}
-            if is_json and attempt_model not in ("gemini-pro", "gemini-1.0-pro"):
+            if is_json:
                 generation_config["response_mime_type"] = "application/json"
 
-            model = genai.GenerativeModel(attempt_model)
-            response = model.generate_content(
-                prompt,
-                generation_config=generation_config,
-                request_options=RequestOptions(timeout=30)
-            )
+            request = {
+                "model": attempt_model,
+                "input": prompt,
+            }
 
-            if not response or not response.text:
+            response = client.interactions.create(**request)
+            output_text = getattr(response, "output_text", None)
+
+            if not output_text:
                 raise Exception("Empty response from Gemini API.")
 
-            return response.text
+            return output_text
 
         except Exception as e:
             err = str(e)
+            if is_auth_error(err):
+                raise invalid_api_key_error()
 
             # ── Model not found → try next model ──────────────────────────────
             if "404" in err or "not found" in err.lower() or "unsupported" in err.lower():
-                logger.warning(f"Model '{attempt_model}' unavailable, trying next...")
-                last_error = e
-                continue
+                logger.warning(f"Interactions model '{attempt_model}' unavailable, trying generate_content...")
+                if not hasattr(client, "models"):
+                    last_error = e
+                    continue
+
+                try:
+                    fallback_request = {
+                        "model": attempt_model,
+                        "contents": prompt,
+                    }
+                    if generation_config:
+                        fallback_request["config"] = generation_config
+
+                    fallback_response = client.models.generate_content(**fallback_request)
+                    fallback_text = (
+                        getattr(fallback_response, "text", None)
+                        or getattr(fallback_response, "output_text", None)
+                    )
+
+                    if not fallback_text:
+                        raise Exception("Empty response from Gemini API.")
+
+                    return fallback_text
+                except Exception as fallback_error:
+                    fallback_err = str(fallback_error)
+                    if is_auth_error(fallback_err):
+                        raise invalid_api_key_error()
+
+                    logger.warning(f"Model '{attempt_model}' unavailable, trying next...")
+                    last_error = fallback_error
+                    continue
 
             # ── Auth / key invalid ────────────────────────────────────────────
             if any(x in err for x in ["401", "API_KEY_INVALID", "API key not valid",
@@ -111,10 +174,12 @@ def call_gemini(prompt, api_key=None, is_json=False):
             # ── Any other error ───────────────────────────────────────────────
             raise Exception(f"Gemini API error: {err}")
 
+    details = f"\nLast API error: {last_error}" if last_error else ""
     raise Exception(
         "All Gemini models are currently unavailable.\n"
         "Please try again in a moment or run:\n"
-        "pip install --upgrade google-generativeai"
+        "pip install --upgrade google-genai"
+        f"{details}"
     )
 
 
