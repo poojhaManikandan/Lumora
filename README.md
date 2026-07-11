@@ -62,45 +62,6 @@ Whether you are preparing for an exam, exploring a new subject, or brushing up o
 - **Self-Correcting** — Smart model fallback logic ensures the app keeps working even if a specific Gemini model version is unavailable.
 - **Covers Any Topic** — From Photosynthesis to Neural Networks to Binary Search — if you can name it, Lumora can teach it.
 
----
 
-## ⚡ Getting Started
-
-### 1. Clone the Repository
-```bash
-git clone https://github.com/YOUR_USERNAME/lumora.git
-cd lumora
-```
-
-### 2. Install Dependencies
-```bash
-pip install -r requirements.txt
-```
-
-### 3. Add Your Gemini API Key
-```bash
-cp .env.example .env
-```
-Open `.env` and set your key:
-```env
-GEMINI_API_KEY=AIzaSyYourActualKeyHere
-```
-> Get a free key from [Google AI Studio](https://aistudio.google.com/)
-
-### 4. Run the App
-```bash
-python -m streamlit run app.py
-```
-Open **http://localhost:8501** in your browser.
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License.
-
----
-
-<div align="center">
 Built with ❤️ using Python · Streamlit · Google Gemini API
 </div>
